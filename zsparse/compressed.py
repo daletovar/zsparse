@@ -12,7 +12,7 @@ FORMATS = {'csr':'Compressed Sparse Row Matrix',
 
 class cs_matrix():
     
-    def __init__(self,arg,shape=None,dtype=None, compressor=None,
+    def __init__(self,arg,shape=None,dtype=None, compressor='default',
                  data_chunks=None,indptr_chunks=None,store=None,
                  check_format=False):
                 
@@ -39,6 +39,7 @@ class cs_matrix():
             data_store = None
             indices_store = None
             indptr_store = None
+        
 
         #to save time
         if not all(isinstance(i, zarr.Array) for i in [data, indices, indices]):
@@ -74,9 +75,10 @@ class cs_matrix():
         self._info_reporter = InfoReporter(self)
         self.nnz = self.data.shape[0]
         self.density = self.nnz/(self.shape[0]*self.shape[1])
-        self.data_compressor = self.data.compressor
-        self.indices_compressor = self.indices.compressor
-        self.indptr_compressor = self.indptr.compressor
+        self.compressor = self.data.compressor
+        #self.data_compressor = self.data.compressor
+        #self.indices_compressor = self.indices.compressor
+        #self.indptr_compressor = self.indptr.compressor
         self._store = store
         self.name = None if self._store is None else self._store.path
         self.persistent = False if self._store is None else True
@@ -186,9 +188,10 @@ class cs_matrix():
         ]
 
         # compressor
-        items += [('Data compressor', repr(self.data_compressor))]
-        items += [('Indices compressor', repr(self.indices_compressor))]
-        items += [('Indptr compressor', repr(self.indptr_compressor))]
+        items += [('Compressor', repr(self.compressor))]
+        #items += [('Data compressor', repr(self.data_compressor))]
+        #items += [('Indices compressor', repr(self.indices_compressor))]
+        #items += [('Indptr compressor', repr(self.indptr_compressor))]
         
         # storage info
         if self._store is not None:

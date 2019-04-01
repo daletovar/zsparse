@@ -148,6 +148,6 @@ class csr(cs_matrix,IndexMixin):
         return self._col_slicing(row,col)
 
     def _row_slice_col_fancy(self,row,col):
-        raise NotImplementedError('Indexing with a {} in the second dimension of class {} is not supported'.format(type(col),self.__class__))
+        raise NotImplementedError('Indexing with a {} in the second dimension of class {} is not supported.'.format(type(col),self.__class__))
     
     
