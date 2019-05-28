@@ -1,2 +1,2 @@
 # zsparse
-A library for zarr compressed sparse matricies
+A library for zarr compressed sparse matrices
