@@ -1,128 +1,120 @@
-import bisect
-import numpy as np
+import numpy as np 
+import scipy.sparse as ss 
+from numbers import Integral
+from collections.abc import Iterable
+from .slicing import normalize_index
 
+FORMATS = {'csr': ss.csr_matrix,
+            'csc': ss.csc_matrix}
 
-INT_TYPES = (int, np.integer)
+def getitem(x, key):
 
-class IndexMixin:
+    if x.format == 'coo':
+        raise NotImplementedError('indexing with coo matrices is not supported.')
     
-    def __getitem__(self,key):
-        
-        row,col = self._validate_indices(key) 
-        
-        #single element
-        # m[3,8]
-        if all(isinstance(i, INT_TYPES) for i in [row,col]):
-            return self._get_element(row,col)
-        
-        # indexing with two lists or arrays
-        if all(hasattr(i, '__len__') for i in [row,col]):
-            raise NotImplementedError(('Object of class {} does not support indexing'
-                                        'with iterables in both dimensions.'.format(self.__class__)))
-        
-        
-            #csr optimized methods
-            # m[5,:]   - self._get_row(row)
-            # m[20:1000,:]  - self._get_row_slice(row)
-            # m[[0,20,50,88,555],:]
-        if isinstance(col,slice) and col==slice(None):
-            if isinstance(row,INT_TYPES):
-                return self._get_row(row,col)
-            elif isinstance(row,slice):
-                return self._get_row_slice(row,col)
-            else:
-                return self._get_row_fancy(row,col)
-        
-            #csc optimized methods
-            # m[:,5]
-            # m[:,20:1000]
-            # m[:,[0,20,50,88,555]]
-        if isinstance(row,slice) and row==slice(None):
-            if isinstance(col,INT_TYPES):
-                return self._get_col(row,col)
-            elif isinstance(col,slice):
-                return self._get_col_slice(row,col)
-            else:
-                return self._get_col_fancy(row,col)
-        
-        if isinstance(row,slice):
-            # m[5:20,45]
-            # m[5:20,5:20]
-            # m[5:20,[2,8,15,18]]
-            if isinstance(col,INT_TYPES):
-                return self._get_partial_col(row,col)
-            elif isinstance(col,slice):
-                #return self._col)sl
-                return self._get_slices(row,col)
-            else:
-                return self._row_slice_col_fancy(row,col)
-        
-        elif hasattr(row,'__len__'):
-            # m[[2,3,4,6,8],8]
-            if isinstance(col,INT_TYPES):
-                return self._col_int(row,col)
-            
+    key = normalize_index(key, x.shape)
+    shape = []
 
-        
+    for k in key:
+        if isinstance(k,Integral):
+            shape.append(1)
+        elif isinstance(k,slice):
+            shape.append(len(range(k.start, k.stop, k.step)))
+        elif isinstance(k,np.ndarray):
+            shape.append(k.size)
+    
+    shape = tuple(shape)
+    
+    if x.format == 'csc':
+        key = [key[1], key[0]]
+    compressed_idx, uncompressed_idx = key
+
+    # single element indexing
+    if all(isinstance(ind,Integral) for ind in (compressed_idx,uncompressed_idx)):
+        return find_single_element(x,compressed_idx,uncompressed_idx)
+
+    # convert to ndarray
+    if isinstance(compressed_idx,Integral):
+        compressed_idx = [compressed_idx]
+    if not isinstance(compressed_idx, np.ndarray):
+        if isinstance(compressed_idx, slice):
+            compressed_idx = np.array(range(
+                compressed_idx.start,compressed_idx.stop,compressed_idx.step))
+        elif isinstance(compressed_idx, Iterable):
+            compressed_idx = np.array(compressed_idx)
+        else:
+            raise IndexError('invalid input for index along compressed dimension')
             
-        if isinstance(col,slice): 
-            # m[5,5:50]
-            # m[[2,3,7,8],5:50]
-            if isinstance(row,INT_TYPES):
-                return self._get_partial_row(row,col)
-            elif hasattr(row,'__len__'):
-                return self._row_fancy_col_slice(row,col)
-        
-        elif hasattr(col,'__len__'):
-            # m[8,[2,3,4,6,8]]
-            if isinstance(row,INT_TYPES):
-                return self._row_int(row,col)
-        
-        
-    def _validate_indices(self,key):
-        M,N = self.shape
-        row,col = key
-        if isinstance(row,INT_TYPES):
-            if row < 0 or row >=  M:
-                raise IndexError('Index out of bounds')
-        elif isinstance(row,slice):
-            if not row==slice(None):
-                if row.start == None:
-                    row = slice(0,row.stop)
-                    #row.start = 0
-                elif row.start < 0 or row.start >= M:
-                    raise IndexError('Index out of bounds')
-                if row.stop == None:
-                    row = slice(row.start,M)
-                    #row.stop = M
-                elif row.stop < 0 or row.stop >= M:
-                    raise IndexError('Index out of bounds')
-                if  row.start >= row.stop:
-                    raise IndexError('')
-        elif hasattr(row, '__len__'):
-            row = np.unique(np.sort(row))
-            if row[0] < 0 or row[0] >= M:
-                raise IndexError('Index out of bounds')
-        
-        if isinstance(col,INT_TYPES):
-            if col < 0 or col >=  N:
-                raise IndexError('Index out of bounds')
-        elif isinstance(col,slice):
-            if not col==slice(None):
-                if col.start == None:
-                    col = slice(0,col.stop)
-                    #col.start = 0
-                elif col.start < 0 or col.start >= N:
-                    raise IndexError('Index out of bounds')
-                if col.stop == None:
-                    col = slice(col.start,N)
-                elif col.stop < 0 or col.stop >= N:
-                    raise IndexError('Index out of bounds')
-                if  col.start >= col.stop:
-                    raise IndexError('')
-        elif hasattr(col, '__len__'):
-            col = np.unique(np.sort(col))
-            if col[0] < 0 or col[0] >= N:
-                raise IndexError('Index out of bounds')
-                
-        return row,col            
+    
+    if isinstance(uncompressed_idx, slice):
+        if uncompressed_idx.step != 1:
+            uncompressed_idx = np.array(range(
+                uncompressed_idx.start,uncompressed_idx.stop,uncompressed_idx.step))
+    elif isinstance(uncompressed_idx,Integral):
+        uncompressed_idx = [uncompressed_idx]
+    
+    # optimized slicing
+    if isinstance(uncompressed_idx,slice):
+        arg = uncompressed_slicing(x,compressed_idx,uncompressed_idx)
+    else:
+        arg = uncompressed_fancy(x,compressed_idx,uncompressed_idx)
+    
+    return FORMATS[x.format](arg,shape=shape)
+
+def find_single_element(x, compressed_idx, uncompressed_idx):
+    item = np.searchsorted(x.indices[x.indptr[compressed_idx:compressed_idx + 1]],
+        uncompressed_idx) + x.indptr[compressed_idx]
+    if x.indices[item] == uncompressed_idx:
+        return x.data[item]
+    return 0 
+
+def uncompressed_slicing(x, compressed_idx, uncompressed_idx):
+    nnz = 0
+    starts = x.indptr.get_coordinate_selection(compressed_idx)
+    stops = x.indptr.get_coordinate_selection(compressed_idx + 1)
+    #stops = x.indptr[slice(compressed_idx.start + 1, compressed_idx.stop + 1, 1)]
+    indptr = np.empty(starts.size + 1, dtype=np.intp)
+    indptr[0] = 0 
+    begins = []
+    ends = []
+    for i,(start,stop) in enumerate(zip(starts,stops),1):
+        current_row = x.indices[start:stop]
+        if len(current_row) == 0: continue
+        begins.append(np.searchsorted(current_row,uncompressed_idx.start) + start)
+        ends.append(np.searchsorted(current_row, uncompressed_idx.stop) + start)
+        nnz += ends[-1] - begins[-1]
+        indptr[i] = nnz
+    data = np.empty(nnz,dtype=x.data.dtype)
+    indices = np.empty(nnz,dtype=np.intp)
+    
+    # this might be slower
+    for i, (begin, end) in enumerate(zip(begins,ends)):
+        data[indptr[i]:indptr[i+1]] = x.data[begin:end]
+        indices[indptr[i]:indptr[i+1]] = x.indices[begin:end]
+    return (data,indices,indptr)
+
+def uncompressed_fancy(x, compressed_idx, uncompressed_idx):
+    starts = x.indptr.get_coordinate_selection(compressed_idx)
+    stops = x.indptr.get_coordinate_selection(compressed_idx + 1)
+    indptr = np.empty(starts.size + 1, dtype=np.intp)
+    indptr[0] = 0 
+    indices = []
+    ind_list = []
+    for i,(start,stop) in enumerate(zip(starts,stops)):
+        inds = []
+        current_row = x.indices[start:stop]
+        for u in range(len(uncompressed_idx)):
+            s = np.searchsorted(current_row, uncompressed_idx[u])
+            if not (s >= current_row.size or current_row[s] != uncompressed_idx[u]):
+                s += start
+                inds.append(s)
+                indices.append(u)
+        ind_list.extend(inds)
+        indptr[i + 1] = indptr[i] + len(inds)
+    ind_list = np.array(ind_list, dtype=np.int64)
+    indices = np.array(indices)
+    data = x.data.get_coordinate_selection(ind_list)
+    return (data,indices,indptr)
+             
+
+    
