@@ -2,7 +2,7 @@ import numpy as np
 import scipy.sparse as ss 
 from numbers import Integral
 from collections.abc import Iterable
-from .slicing import normalize_index
+from sparse.slicing import normalize_index
 
 FORMATS = {'csr': ss.csr_matrix,
             'csc': ss.csc_matrix}

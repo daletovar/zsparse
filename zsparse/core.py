@@ -3,8 +3,10 @@ import scipy.sparse as ss
 import zarr 
 import os
 import pickle
-from zarr.util import InfoReporter, human_readable_size
+import operator
+from functools import reduce
 from .indexing import getitem
+from .utils import html_table, human_readable_size
 
 FORMATS = {'coo': ss.coo_matrix,
             'csr': ss.csr_matrix,
@@ -58,11 +60,8 @@ class Matrix:
             self.indices = zarr.array(arg[1],chunks=chunks,store=store2,compressor=compressor)
             self.indptr = zarr.array(arg[2],chunks=chunks,store=store3,compressor=compressor)
         self.data = zarr.array(arg[0],chunks=chunks,store=store1,compressor=compressor,dtype=dtype)
-        self.dtype = self.data.dtype
         self.format = format
         self._store = store
-        self._chunk_store = self.data._chunk_store
-        self._info_reporter = InfoReporter(self)
 
         if self._store is not None:
             with open(os.path.join(store.path,'attrs.pkl'), 'wb') as file:
@@ -100,6 +99,10 @@ class Matrix:
     __repr__ = __str__
 
     @property
+    def dtype(self):
+        return self.data.dtype
+    
+    @property
     def nchunks(self):
         if self.format == 'coo':
             return self.data.nchunks + self.row.nchunks + self.col.nchunks
@@ -133,51 +136,8 @@ class Matrix:
     def compressor(self):
         return self.data.compressor
     @property
-    def info(self):
-        return self._info_reporter
-    def info_items(self):
-        return self._info_items_nosync()
-    def _info_items_nosync(self):
-        def typestr(o):
-            return '%s.%s' % (type(o).__module__, type(o).__name__)
-        def bytestr(n):
-            if n > 2**10:
-                return '%s (%s)' % (n, human_readable_size(n))
-            else:
-                return str(n)
-        items = []
+    def size(self):
+        return reduce(operator.mul,self.shape)
 
-        # basic info
-        #if self.name is not None:
-        #    items += [('Name', self.name)]
-        items += [
-            ('Type', typestr(self)),
-            ('Format', FORMAT_NAMES[self.format]),
-            ('Data type', '%s' % self.dtype),
-            ('Shape', str(self.shape)),
-            ('nnz', '%s' % self.nnz),
-            ('Density', str(self.density)),
-            ('Order', self.data.order)
-        ]
-
-        # compressor
-        items += [('Compressor', repr(self.compressor))]
-        
-        # storage info
-        if self._store is not None:
-            items += [('Store type', typestr(self._store))]
-        if self._chunk_store is not None:
-            items += [('Chunk store type', typestr(self._chunk_store))]
-        items += [('No. bytes as dense', 
-            bytestr(self.shape[0] * self.shape[1] * self.dtype.itemsize))]
-        items += [('No. bytes', bytestr(self.nbytes))]
-        if self.nbytes_stored > 0:
-            items += [
-                ('No. bytes stored', bytestr(self.nbytes_stored)),
-                ('Storage ratio', '%.1f' % (self.nbytes / self.nbytes_stored)),
-            ]
-        items += [
-            ('Chunks initialized', '%s/%s' % (self.nchunks_initialized, self.nchunks))
-        ]
-
-        return items
+    def _repr_html_(self):
+        return html_table(self)
